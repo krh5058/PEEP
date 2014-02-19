@@ -1,0 +1,34 @@
+% PEEP
+% Post processing script
+% Author: Ken Hwang
+% Last Updated: 2/19/2014
+% Documentation here
+
+p = mfilename('fullpath');
+rootDir = fileparts(p);
+
+[clientF,clientP] = uigetfile('*.xlsx',rootDir); % Pull rating data
+clientData = xlsread([clientP clientF]); % clientData = rating data
+idCol = 1; % Column for subject ID in rating data
+subj = clientData(:,idCol); % Generate subject vector
+
+[clientF2,clientP2] = uigetfile('*.xlsx',rootDir); % Pull filename conversion data
+[~,clientData2] = xlsread([clientP2 clientF2]); % clientData = subject ID to diary conversion
+dateStringCol = 5; % Column for diary date string
+idCol = 2; % Column for subject ID
+dateString = clientData2(:,dateStringCol); % Generate date string vector
+dateString = dateString(2:end); % Remove headers
+subj2 = clientData2(:,idCol); % Generate subject vector
+subj2 = subj2(2:end); % Remove headers
+subj2 = cellfun(@(y)(regexp(y,'\d{4,4}','match')),subj2); % Parse string
+subj2 = cellfun(@str2double,subj2); % Convert
+subj2_unique = unique(subj2);
+
+missConversion = setdiff(subj2_unique,subj);
+missRating = setdiff(subj,subj2_unique);
+
+
+dataDir = uigetdir(rootDir);
+
+[~,d] = system(['dir /a-h/b ' dataDir filesep '*.txt']);
+d = regexp(d(1:end-1),'\n','split');
