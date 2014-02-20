@@ -4,6 +4,8 @@
 % Last Updated: 2/19/2014
 % Documentation here
 
+TSTART = tic;
+
 p = mfilename('fullpath');
 rootDir = fileparts(p);
 
@@ -18,6 +20,8 @@ subj = clientData(:,idCol); % Generate subject vector
 
 rateCol = 24:31; % Rating columns
 rate = clientData(:,rateCol); % Rating data
+rateAng = rate(:,1:4);
+rateHap = rate(:,5:8);
 
 [clientF2,clientP2] = uigetfile('*.xlsx',rootDir); % Pull filename conversion data
 [clientData2num,clientData2str] = xlsread([clientP2 clientF2]); % clientData = subject ID to diary conversion
@@ -55,11 +59,12 @@ d = regexp(d(1:end-1),'\n','split');
 % Pre-allocate by-row from conversion sheet (without missRating
 % subjects; also will ignore any in missConversion);
 
-outCell = cell([length(subj2) 8]); % 1: Subject, 2: Date string, 3: Ang text data, 4: Ang order, 5: Ang ordered rating data, 6: Hap text data, 7: Hap order, 8: Hap ordered rating data
+% 1: Subject, 2: Date string, 3: All filenames associated with date string, 4: Ang text data, 5: Ang order, 6: Ang ordered rating data, 7: Hap text data, 8: Hap order, 9: Hap ordered rating data 
+outCell = cell([length(subj2) 9]); 
 
 skip = zeros([length(subj2) 1]); % Track skips
 for missRate_index = 1:length(missRating)
-    skip(subj2==missRating(i)) = 1;
+    skip(subj2==missRating(missRate_index)) = 1;
 end
 
 % Only 2 conditions that have ratings
@@ -70,47 +75,74 @@ hap = 'hap';
 angOrderIndex = 1:4;
 hapOrderIndex = 5:8;
 
+calcTime = zeros([length(subj2) 1]);
+
 for i = 1:length(subj2)
     if ~skip(i) % Skip non-applicable subjects
+        tic;
         outCell{i,1} = subj2(i);
         tempDateString = dateString{i};
         outCell{i,2} = tempDateString;
         
+        % Filename capture
         tempFiles = d(~cellfun(@isempty,cellfun(@(y)(regexp(y,tempDateString)),d,'UniformOutput',false))); % Find files by individual diary string
+        outCell{i,3} = tempFiles;
         tempFiles = {tempFiles{~cellfun(@isempty,cellfun(@(y)(regexp(y,ang)),tempFiles,'UniformOutput',false))}, ...
             tempFiles{~cellfun(@isempty,cellfun(@(y)(regexp(y,hap)),tempFiles,'UniformOutput',false))}}; % Grab only 2 file names, angry first, happy second
         
-        outCell{i,3} = importdata([dataDir filesep tempFiles{1}]); % 1 for ang
+        if isempty(tempFiles) % Uncaptured by pattern detection
+            skip(i) = 1;
+            continue;
+        else
+            
+            % Text data
+            outCell{i,4} = importdata([dataDir filesep tempFiles{1}]); % 1 for ang
+            outCell{i,7} = importdata([dataDir filesep tempFiles{2}]); % 2 for hap
+            
+            % Order
+            % From peep_matlab/get_peep_cond_list.m
+            switch runOrder(i)
+                case 0          % Default, plays in order with 15 pauses
+                    cond_list = [ 0 1 0 2 0 3 0 4 0 5 0 6 0 7 0 8 0 9 0 10 0 11 0 12 0 ];
+                case 1
+                    cond_list = [ 00 09 00 06 00 03 00 10 00 07 00 04 00 11 00 08 00 01 00 12 00 05 00 02 00 09 00 ];
+                case 2
+                    cond_list = [ 00 10 00 07 00 04	00 11 00 08 00 01 00 12 00 05 00 02 00 09 00 06 00 03 00 10 00 ];
+                case 3
+                    cond_list = [ 00 11	00 08 00 01 00 12 00 05 00 02 00 09 00 06 00 03 00 10 00 07 00 04 00 11 00 ];
+                case 4
+                    cond_list = [ 00 12 00 05 00 02 00 09 00 06 00 03 00 10 00 07 00 04 00 11 00 08 00 01 00 12 00 ];
+                case 5
+                    cond_list = [ 00 09 00 02 00 07 00 10 00 03 00 08 00 11 00 04 00 05 00 12 00 01 00 06 00 09 00 ];
+                case 6
+                    cond_list = [ 00 10 00 03 00 08 00 11 00 04 00 05 00 12 00 01 00 06 00 09 00 02 00 07 00 10 00 ];
+                case 7
+                    cond_list = [ 00 11 00 04 00 05 00 12 00 01 00 06 00 09 00 02 00 07 00 10 00 03 00 08 00 11 00 ];
+                case 8
+                    cond_list = [ 00 12 00 01 00 06 00 09 00 02 00 07 00 10 00 03 00 08 00 11 00 04 00 05 00 12 00 ];
+                otherwise
+                    cond_list = [ 1 0 2 0 ];
+            end % switch group
+            
+            [~,IA,~] = intersect(cond_list,angOrderIndex); % IA is index at which the angOrderIndex values are found
+            [~,outCell{i,5}] = sort(IA); % Output sorts as: the value (from angOrderIndex) is in order in which it appeared (index) .  Read as: "[Value] (condition number) appeared at [index] (ordinal)"
+            
+            [~,IA2,~] = intersect(cond_list,hapOrderIndex); % IA2 is index at which the hapOrderIndex values are found
+            %         [~,J2] = sort(IA2); % Output sorts as: the item (unconverted) is in order in which it appeared (index).  Read as: "[Item] (condition number unconverted) appeared at [index] (ordinal)"
+            %         outCell{i,7} = hapOrderIndex(J2); % The item value converted into the actual value (from hapOrderIndex, 1=5,2=6,3=7,4=8).  Don't need to convert.  Just need index order.
+            [~,outCell{i,8}] = sort(IA2);
+            
+            % Ratings
+            tempRateAng = rateAng(subj==subj2(i),:);
+            tempRateHap = rateHap(subj==subj2(i),:);
+            
+            outCell{i,6} = tempRateAng(outCell{i,5});
+            outCell{i,9} = tempRateHap(outCell{i,8});
+        end
         
-        % From peep_matlab/get_peep_cond_list.m
-        switch runOrder(i)
-            case 0          % Default, plays in order with 15 pauses
-                cond_list = [ 0 1 0 2 0 3 0 4 0 5 0 6 0 7 0 8 0 9 0 10 0 11 0 12 0 ];
-            case 1
-                cond_list = [ 00 09 00 06 00 03 00 10 00 07 00 04 00 11 00 08 00 01 00 12 00 05 00 02 00 09 00 ];
-            case 2
-                cond_list = [ 00 10 00 07 00 04	00 11 00 08 00 01 00 12 00 05 00 02 00 09 00 06 00 03 00 10 00 ];
-            case 3
-                cond_list = [ 00 11	00 08 00 01 00 12 00 05 00 02 00 09 00 06 00 03 00 10 00 07 00 04 00 11 00 ];
-            case 4
-                cond_list = [ 00 12 00 05 00 02 00 09 00 06 00 03 00 10 00 07 00 04 00 11 00 08 00 01 00 12 00 ];
-            case 5
-                cond_list = [ 00 09 00 02 00 07 00 10 00 03 00 08 00 11 00 04 00 05 00 12 00 01 00 06 00 09 00 ];
-            case 6
-                cond_list = [ 00 10 00 03 00 08 00 11 00 04 00 05 00 12 00 01 00 06 00 09 00 02 00 07 00 10 00 ];
-            case 7
-                cond_list = [ 00 11 00 04 00 05 00 12 00 01 00 06 00 09 00 02 00 07 00 10 00 03 00 08 00 11 00 ];
-            case 8
-                cond_list = [ 00 12 00 01 00 06 00 09 00 02 00 07 00 10 00 03 00 08 00 11 00 04 00 05 00 12 00 ];
-            otherwise
-                cond_list = [ 1 0 2 0 ];
-        end % switch group
-       
-        [~,IA,~] = intersect(cond_list,angOrderIndex); % IA is index at which the angOrderIndex values are found
-        [~,outCell{i,4}] = sort(IA); % Output sorts as: the value (from angOrderIndex) is in order in which it appeared (index) .  Read as: "[Value] (condition number) appeared at [index] (ordinal)"
-        
-        [~,IA2,~] = intersect(cond_list,hapOrderIndex); % IA2 is index at which the hapOrderIndex values are found
-        [~,J] = sort(IA2); % Output sorts as: the item (unshifted, 1=5,2=6,3=7,4=8) is in order in which it appeared, index is the value of the hapOrderIndex.  Read as: "[Value] (condition number) appeared at [index] (ordinal)"
-        outCell{i,7} = hapOrderIndex(J);
+    
+        calcTime(i) = toc;
     end
 end
+
+toc(TSTART);
